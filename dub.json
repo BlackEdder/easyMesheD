@@ -1,0 +1,9 @@
+{
+	"name": "easymeshed",
+	"authors": [
+		"Edwin van Leeuwen"
+	],
+	"description": "D implementation of easyMesh",
+	"copyright": "Copyright © 2016, Edwin van Leeuwen",
+	"license": "MIT"
+}
