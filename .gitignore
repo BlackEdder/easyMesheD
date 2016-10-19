@@ -4,3 +4,5 @@ __dummy.html
 *.o
 *.obj
 __*
+log
+dub.selections.json
