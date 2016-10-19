@@ -60,10 +60,6 @@ struct EasyMeshConnection
         import std.conv : to;
         import vibe.core.net : connectTCP;
         connection = connectTCP(gateway, port.to!(ushort));
-        connection.waitForData;
-        auto json = read();
-        json.writeln;
-        connectionID = json["from"].integer;
     }
 
     string readString() 
@@ -72,6 +68,11 @@ struct EasyMeshConnection
         if (!connection.dataAvailableForRead)
             return "{}";
         return connection.readJsonObject();
+    }
+
+    bool connected()
+    {
+        return connection.connected;
     }
 
     auto read()
@@ -91,7 +92,6 @@ struct EasyMeshConnection
     }
 
 private:
-    long connectionID;
     TCPConnection connection;
 }
 
@@ -99,38 +99,10 @@ class EasyMesh
 {
     this(string gateway, int port) 
     {
-        import std.json : parseJSON;
         import std.random : uniform;
         nodeID = uniform(0, 100000);
-
-        import std.algorithm : map;
-        import std.conv : to;
-        import std.base64;
-        import vibe.core.net : connectTCP;
-
-        auto connection = EasyMeshConnection(gateway, port.to!(ushort));
-        connections[connection.connectionID] = connection;
-
-        import std.format : format;
-        sendMessage(connection.connectionID, 
-            parseJSON(q{{"type":6, "subs":[]}}));
-
-        connection.connection.waitForData;
-        connection.read().writeln;
-
-        sendMessage(connection.connectionID, 
-            parseJSON(q{{"type":5, "subs":[]}}));
-
-        connection.connection.waitForData;
-        connection.read().writeln;
-        /+
-            Further design:
-            Add a read (Should return a JSONAA) and send, and sendBroadcast
-
-            Try reading then sending a message with our sub connections ([])
-
-            Read should assert (for now) if it finds two {
-        +/
+        // Setup initial connection
+        newConnection(gateway, port);
     }
 
     import std.json : JSONValue;
@@ -140,6 +112,32 @@ class EasyMesh
         msg["dest"] = destID;
         msg["from"] = nodeID;
         connections[destID].sendMessage(msg.to!string);
+    }
+
+    void update()
+    {
+        import std.json : parseJSON;
+        foreach(k, v; connections) {
+            assert(v.connected, "Lost connection");
+            if (v.connection.waitForData())
+                v.read().writeln;
+            sendMessage(k, parseJSON(q{{"type":5, "subs":[]}}));
+        }
+    }
+
+    void newConnection(string gateway, int port) 
+    { 
+        import std.json : parseJSON;
+        auto connection = EasyMeshConnection(gateway, port);
+
+        connection.connection.waitForData;
+        auto json = connection.read();
+        auto connectionID = json["from"].integer;
+        connections[connectionID] = connection;
+
+        // Say hello
+        sendMessage(connectionID, 
+            parseJSON(q{{"type":6, "subs":[]}}));
     }
 
 private: 
