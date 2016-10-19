@@ -51,50 +51,19 @@ We need to start listening and send an empty array of subconnections. It will al
 
 We should also make a minimal log example program, which just logs all received messages to the command line
 +/
-struct easyMesh
+struct EasyMeshConnection
 {
     import vibe.data.json;
     import vibe.core.net : TCPConnection;
     this(string gateway, int port) 
     {
-        import std.random : uniform;
-        nodeID = uniform(0, 100000);
-        import std.algorithm : map;
         import std.conv : to;
-        import std.base64;
         import vibe.core.net : connectTCP;
-        _port = port;
-
-        connection = connectTCP(gateway, _port.to!(ushort));
+        connection = connectTCP(gateway, port.to!(ushort));
         connection.waitForData;
         auto json = read();
         json.writeln;
         connectionID = json["from"].integer;
-
-        import std.format : format;
-        sendMessage(format(q{{"dest":%s, "from":%s, "type":6, "subs":[]}}, 
-            connectionID,
-            nodeID));
-
-        connection.waitForData;
-        read().writeln;
-
-        sendMessage(format(q{{"dest":%s, "from":%s, "type":5, "subs":[]}}, 
-            connectionID,
-            nodeID));
-
-        connection.waitForData;
-        read().writeln;
-
-
-        /+
-            Further design:
-            Add a read (Should return a JSONAA) and send, and sendBroadcast
-            
-            Try reading then sending a message with our sub connections ([])
-
-            Read should assert (for now) if it finds two {
-        +/
     }
 
     string readString() 
@@ -121,15 +90,59 @@ struct easyMesh
         connection.write(msg);
     }
 
-    alias CallBack = void delegate(string);
-
 private:
-    int _port;
-
-    long nodeID;
     long connectionID;
     TCPConnection connection;
+}
 
-    import std.typecons : Nullable;
-    Nullable!CallBack callBack;
+class EasyMesh 
+{
+    this(string gateway, int port) 
+    {
+        import std.json : parseJSON;
+        import std.random : uniform;
+        nodeID = uniform(0, 100000);
+
+        import std.algorithm : map;
+        import std.conv : to;
+        import std.base64;
+        import vibe.core.net : connectTCP;
+
+        auto connection = EasyMeshConnection(gateway, port.to!(ushort));
+        connections[connection.connectionID] = connection;
+
+        import std.format : format;
+        sendMessage(connection.connectionID, 
+            parseJSON(q{{"type":6, "subs":[]}}));
+
+        connection.connection.waitForData;
+        connection.read().writeln;
+
+        sendMessage(connection.connectionID, 
+            parseJSON(q{{"type":5, "subs":[]}}));
+
+        connection.connection.waitForData;
+        connection.read().writeln;
+        /+
+            Further design:
+            Add a read (Should return a JSONAA) and send, and sendBroadcast
+
+            Try reading then sending a message with our sub connections ([])
+
+            Read should assert (for now) if it finds two {
+        +/
+    }
+
+    import std.json : JSONValue;
+    void sendMessage(long destID, JSONValue msg)
+    {
+        import std.conv : to;
+        msg["dest"] = destID;
+        msg["from"] = nodeID;
+        connections[destID].sendMessage(msg.to!string);
+    }
+
+private: 
+    long nodeID;
+    EasyMeshConnection[long] connections;
 }
