@@ -5,5 +5,20 @@
 	],
 	"description": "D implementation of easyMesh",
 	"copyright": "Copyright © 2016, Edwin van Leeuwen",
-	"license": "MIT"
+	"license": "MIT",
+	"dependencies": {
+		"vibe-d:core": "~>0.7.23"
+	},
+    "configurations": [
+        {
+            "name": "default",
+            "targetType": "library"
+        },
+        {
+            "name": "log",
+            "targetType": "executable",
+            "targetName": "log",
+            "mainSourceFile": "examples/log.d"
+        }
+    ]
 }
