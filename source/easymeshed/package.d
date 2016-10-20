@@ -1,5 +1,8 @@
 module easymeshed;
-import std.stdio : writeln;
+
+version (assert) {
+    import std.stdio : writeln;
+}
 
 string readJsonObject(T)(ref T connection)
 {
