@@ -6,17 +6,18 @@ string readJsonObject(T)(ref T connection)
     import vibe.stream.operations : readUntil;
     import std.range : walkLength;
     import std.algorithm : balancedParens, filter;
-    int countOpen = 1;
+    int countOpen = 0;
+    bool firstRun = true;
     string line;
-    while(countOpen > 0)
+    while(countOpen > 0 || firstRun)
     {
         auto segment = cast(string) connection.readUntil([125]);
-        --countOpen;
-        auto newOpen = segment.filter!((a) => a == '{').walkLength - 1;
+        auto newOpen = segment.filter!((a) => a == '{').walkLength;
         countOpen += newOpen;
         line ~= segment ~ "}";
+        --countOpen;
+        firstRun = false;
     }
-
     assert(line.balancedParens('{', '}'), "Object not complete");
     return line;
 }
@@ -27,7 +28,8 @@ unittest
     struct Mock
     {
         import std.range : take, cycle;
-        ubyte[] msgs = [123, 34, 100, 101, 115, 116, 34, 58, 48, 44, 34, 102, 114, 111, 109, 34, 58, 49, 51, 54, 49, 48, 52, 56, 56, 44, 34, 116, 121, 112, 101, 34, 58, 53, 44, 34, 115, 117, 98, 115, 34, 58, 91, 93, 125, 123, 34, 100, 101, 115, 116, 34, 58, 49, 51, 54, 49, 48, 52, 56, 56, 44, 34, 102, 114, 111, 109, 34, 58, 49, 51, 54, 49, 48, 52, 56, 56, 44, 34, 116, 121, 112, 101, 34, 58, 52, 44, 34, 109, 115, 103, 34, 58, 123, 34, 116, 105, 109, 101, 34, 58, 49, 56, 48, 56, 56, 53, 50, 56, 55, 44, 34, 110, 117, 109, 34, 58, 48, 44, 34, 97, 100, 111, 112, 116, 34, 58, 102, 97, 108, 115, 101, 125, 125].cycle.take(1000).array;
+        ubyte[] msgs = [123, 34, 100, 101, 115, 116, 34, 58, 48, 44, 34, 102, 114, 111, 109, 34, 58, 49, 51, 54, 49, 48, 52, 56, 56, 44, 34, 116, 121, 112, 101, 34, 58, 53, 44, 34, 115, 117, 98, 115, 34, 58, 91, 93, 125, 123, 34, 100, 101, 115, 116, 34, 58, 49, 51, 54, 49, 48, 52, 56, 56, 44, 34, 102, 114, 111, 109, 34, 58, 49, 51, 54, 49, 48, 52, 56, 56, 44, 34, 116, 121, 112, 101, 34, 58, 52, 44, 34, 109, 115, 103, 34, 58, 123, 34, 116, 105, 109, 101, 34, 58, 49, 56, 48, 56, 56, 53, 50, 56, 55, 44, 34, 110, 117, 109, 34, 58, 48, 44, 34, 97, 100, 111, 112, 116, 34, 58, 102, 97, 108, 115, 101, 125, 125, 
+            123, 100, 123, 100, 123, 100, 125, 100, 125, 100, 125].cycle.take(1000).array;
 
         auto readUntil(ubyte[] ubs) 
         {
@@ -42,6 +44,8 @@ unittest
 
     assert(readJsonObject(m) == q{{"dest":0,"from":13610488,"type":5,"subs":[]}});
     assert(readJsonObject(m) == q{{"dest":13610488,"from":13610488,"type":4,"msg":{"time":180885287,"num":0,"adopt":false}}});
+    import std.stdio : writeln;
+    assert(readJsonObject(m) == q{{d{d{d}d}d}});
 }
 
 /+ 
