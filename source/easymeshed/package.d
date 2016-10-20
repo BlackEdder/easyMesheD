@@ -64,6 +64,9 @@ struct EasyMeshConnection
         import std.conv : to;
         import vibe.core.net : connectTCP;
         connection = connectTCP(gateway, port.to!(ushort));
+        connection.keepAlive = true;
+        import std.datetime : dur;
+        connection.readTimeout = dur!"seconds"(60);
     }
 
     string readString() 
@@ -90,7 +93,8 @@ struct EasyMeshConnection
     {
         import std.algorithm : map;
         import std.array : array;
-        writeln("Sending: ", msg);
+        debug writeln("Sending: ", msg);
+        assert(connection.connected, "Lost connection when sending");
         //connection.write(msg.map!((a) => a.to!ubyte).array);
         connection.write(msg);
     }
@@ -99,6 +103,16 @@ private:
     TCPConnection connection;
 }
 
+enum meshPackageType {
+    DROP                    = 3,
+    TIME_SYNC               = 4,
+    NODE_SYNC_REQUEST       = 5,
+    NODE_SYNC_REPLY         = 6,
+    BROADCAST               = 8,  //application data for everyone
+    SINGLE                  = 9   //application data for a single node
+};
+
+
 class EasyMesh 
 {
     this(string gateway, int port) 
@@ -106,32 +120,83 @@ class EasyMesh
         import std.random : uniform;
         nodeID = uniform(0, 100000);
         // Setup initial connection
-        newConnection(gateway, port);
+        _gateway = gateway;
+        _port = port;
+        newConnection(_gateway, _port);
     }
 
     import std.json : JSONValue;
-    void sendMessage(long destID, JSONValue msg)
+    private void sendMessage(long destID, JSONValue msg)
     {
         import std.conv : to;
         msg["dest"] = destID;
         msg["from"] = nodeID;
-        connections[destID].sendMessage(msg.to!string);
+
+        assert("type" in msg, "All messages need to have a type specified");
+        //connections[destID].sendMessage(msg.to!string);
+
+        // TODO currently this just sends it to the only connection available
+        auto destination = connections.values[0];
+        if (!destination.connected) {
+            newConnection(_gateway, _port);
+            sendMessage(destID, msg);
+        } else {
+            destination.sendMessage(msg.to!string);
+        }
+    }
+
+    void sendSingle(long destID, string msg)
+    {
+        import std.format : format;
+        import std.json : parseJSON;
+        sendMessage(destID, 
+            format(q{{"type": %d, "msg": "%s"}},
+                meshPackageType.SINGLE, msg).parseJSON);
+
+    }
+
+    void sendBroadcast(string msg)
+    {
+        import std.conv : to;
+        import std.format : format;
+        
+        auto destination = connections.values[0];
+        if (!destination.connected) {
+            newConnection(_gateway, _port);
+            sendBroadcast(msg);
+        } else {
+            destination.sendMessage(
+                format(q{{"from": %s, "type": %d, "msg": "%s"}},
+                    nodeID, meshPackageType.BROADCAST, msg));
+        }
     }
 
     void update()
     {
+        import std.datetime : dur;
         import std.json : parseJSON;
         foreach(k, v; connections) {
-            assert(v.connected, "Lost connection");
-            if (v.connection.waitForData())
-                v.read().writeln;
-            sendMessage(k, parseJSON(q{{"type":5, "subs":[]}}));
+            if (!v.connected)
+                newConnection(_gateway, _port);
+            else {
+                assert(v.connected, "Lost connection");
+                if (v.connection.waitForData(dur!("msecs")(10)))
+                    handleMessage(v.read());
+            }
         }
     }
 
-    void newConnection(string gateway, int port) 
-    { 
+    void setReceiveCallback(void delegate(long from, JSONValue[string] msg) callBack )
+    {
+        callBacks ~= callBack;
+    }
+
+    private void newConnection(string gateway, int port) 
+    {
+        import std.conv : to;
         import std.json : parseJSON;
+        import std.format : format;
+        debug writeln("Setting up connection with: ", _gateway, ":", _port);
         auto connection = EasyMeshConnection(gateway, port);
 
         connection.connection.waitForData;
@@ -141,10 +206,46 @@ class EasyMesh
 
         // Say hello
         sendMessage(connectionID, 
-            parseJSON(q{{"type":6, "subs":[]}}));
+            parseJSON(format(q{{"type": %s, "subs":[]}}, 
+                meshPackageType.NODE_SYNC_REPLY.to!int)));
+        sendMessage(connectionID, 
+            parseJSON(format(q{{"type": %s, "subs":[]}}, 
+                meshPackageType.NODE_SYNC_REQUEST.to!int)));
+    }
+
+    private void handleMessage(JSONValue[string] msg) 
+    {
+        debug writeln("handleMessage: ", msg);
+        auto type = msg["type"].integer;
+
+        if (type == meshPackageType.NODE_SYNC_REQUEST) {
+            import std.conv : to;
+            import std.json : parseJSON;
+            import std.format : format;
+            sendMessage(msg["from"].integer, 
+                parseJSON(format(q{{"type": %s, "subs":[]}}, 
+                    meshPackageType.NODE_SYNC_REPLY.to!int)));
+        }
+        else if (type == meshPackageType.BROADCAST || type == meshPackageType.SINGLE)
+        {
+            if (type == meshPackageType.SINGLE && msg["dest"].integer != nodeID)
+            {
+                debug writeln("Received a message not intended for us: ", msg);
+            } else {
+                foreach(cb; callBacks) {
+                    cb(msg["from"].integer, msg);
+                }
+            }
+        }
     }
 
 private: 
     long nodeID;
     EasyMeshConnection[long] connections;
+
+    alias callBackDelegate = void delegate(long from, JSONValue[string] msg);
+    callBackDelegate[] callBacks;
+
+    string _gateway;
+    int _port;
 }
