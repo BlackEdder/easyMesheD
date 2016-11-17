@@ -118,10 +118,9 @@ enum meshPackageType {
 
 class EasyMesh 
 {
-    this(string gateway, int port) 
+    this(string gateway, int port, int nodeID = 1) 
     {
-        import std.random : uniform;
-        nodeID = uniform(0, 100000);
+        _nodeID = nodeID;
         // Setup initial connection
         _gateway = gateway;
         _port = port;
@@ -133,7 +132,7 @@ class EasyMesh
     {
         import std.conv : to;
         msg["dest"] = destID;
-        msg["from"] = nodeID;
+        msg["from"] = _nodeID;
 
         assert("type" in msg, "All messages need to have a type specified");
         //connections[destID].sendMessage(msg.to!string);
@@ -170,7 +169,7 @@ class EasyMesh
         } else {
             destination.sendMessage(
                 format(q{{"from": %s, "type": %d, "msg": "%s"}},
-                    nodeID, meshPackageType.BROADCAST, msg));
+                    _nodeID, meshPackageType.BROADCAST, msg));
         }
     }
 
@@ -231,7 +230,7 @@ class EasyMesh
         }
         else if (type == meshPackageType.BROADCAST || type == meshPackageType.SINGLE)
         {
-            if (type == meshPackageType.SINGLE && msg["dest"].integer != nodeID)
+            if (type == meshPackageType.SINGLE && msg["dest"].integer != _nodeID)
             {
                 debug writeln("Received a message not intended for us: ", msg);
             } else {
@@ -243,7 +242,7 @@ class EasyMesh
     }
 
 private: 
-    long nodeID;
+    long _nodeID;
     EasyMeshConnection[long] connections;
 
     alias callBackDelegate = void delegate(long from, JSONValue[string] msg);
